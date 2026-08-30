@@ -291,6 +291,10 @@ func (a *ESCLAdapter) CheckADFStatus() (bool, error) {
 			slog.Warn("paper jam detected from ADF status")
 		}
 		a.lastScanErr = &vens.ScanError{Kind: vens.ScanErrPaperJam, Msg: "paper jam"}
+	} else if status.ErrorCode == vens.ErrorCodeNoPaper && !status.HasPaper {
+		// The iX500 reports 0x2000 after the final sheet is transferred.
+		// An empty ADF is a ready state, not a scanner fault.
+		a.lastScanErr = nil
 	} else if status.ErrorCode != 0 {
 		// Error from GET_STATUS offset 44 (scan-time errors)
 		kind := vens.ErrorCodeToKind(status.ErrorCode)

@@ -61,6 +61,7 @@ const (
 
 	// GET_STATUS error codes (offset 44, lower 16 bits).
 	ErrorCodeMultiFeed uint16 = 0x0155 // Multi-feed / duplicate detected
+	ErrorCodeNoPaper   uint16 = 0x2000 // ADF empty after the final transferred sheet
 )
 
 // SCSI opcodes (CDB byte 0).

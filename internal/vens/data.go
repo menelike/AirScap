@@ -25,6 +25,8 @@ const (
 // ErrorCodeToKind maps GET_STATUS error codes (offset 44, lower 16 bits) to ScanErrorKind.
 func ErrorCodeToKind(code uint16) ScanErrorKind {
 	switch code {
+	case ErrorCodeNoPaper:
+		return ScanErrNoPaper
 	case ErrorCodeMultiFeed:
 		return ScanErrMultiFeed
 	default:
@@ -322,6 +324,7 @@ func (s *ScanSession) NextPage() (Page, error) {
 
 	// Before first side of a new sheet (except the very first), wait for next sheet
 	if s.sideIdx == 0 && s.physicalSheet > 0 {
+		noPaper := false
 		// Check status
 		s.conn.SetDeadline(time.Now().Add(10 * time.Second))
 		if _, err := s.conn.Write(MarshalGetStatus(s.token)); err != nil {
@@ -336,12 +339,18 @@ func (s *ScanSession) NextPage() (Page, error) {
 		if len(statusResp) >= StatusRespScanStatusOffset+4 {
 			scanStatus := binary.BigEndian.Uint32(statusResp[StatusRespScanStatusOffset : StatusRespScanStatusOffset+4])
 			slog.Info("scan status", "status", fmt.Sprintf("0x%08X", scanStatus))
+			noPaper = !HasPaper(scanStatus)
 		}
 
 		// Check for scanner error (multi-feed, etc.) at offset 44
 		if len(statusResp) >= StatusRespErrorOffset+4 {
 			errorField := binary.BigEndian.Uint32(statusResp[StatusRespErrorOffset : StatusRespErrorOffset+4])
 			if errorCode := uint16(errorField & 0xFFFF); errorCode != 0 {
+				if errorCode == ErrorCodeNoPaper && noPaper {
+					slog.Info("scan complete", "reason", "ADF empty")
+					s.done = true
+					return Page{}, io.EOF
+				}
 				s.done = true
 				kind := ErrorCodeToKind(errorCode)
 				msg := fmt.Sprintf("scanner error 0x%04X", errorCode)

@@ -194,6 +194,15 @@ func TestScanErrorKindConstants(t *testing.T) {
 	}
 }
 
+func TestErrorCodeToKind(t *testing.T) {
+	if got := ErrorCodeToKind(ErrorCodeNoPaper); got != ScanErrNoPaper {
+		t.Errorf("ErrorCodeNoPaper kind = %d, want %d", got, ScanErrNoPaper)
+	}
+	if got := ErrorCodeToKind(ErrorCodeMultiFeed); got != ScanErrMultiFeed {
+		t.Errorf("ErrorCodeMultiFeed kind = %d, want %d", got, ScanErrMultiFeed)
+	}
+}
+
 func TestScanError_Error(t *testing.T) {
 	err := &ScanError{Kind: ScanErrPaperJam, Msg: "paper jam"}
 	if err.Error() != "paper jam" {
