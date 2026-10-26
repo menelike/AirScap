@@ -311,6 +311,27 @@ func (d *DataChannel) StartScan(cfg ScanConfig) (*ScanSession, error) {
 	}, nil
 }
 
+// readSense queries the detailed scanner error on the active connection.
+// A missing or truncated response must never be interpreted as success.
+func (s *ScanSession) readSense() error {
+	s.conn.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := s.conn.Write(MarshalGetPageMetadata(s.token)); err != nil {
+		return fmt.Errorf("request sense: %w", err)
+	}
+	resp, err := readResponse(s.conn)
+	if err != nil {
+		return fmt.Errorf("request sense response: %w", err)
+	}
+	if len(resp) < SenseDataOffset+18 {
+		return fmt.Errorf("short sense response: %d bytes", len(resp))
+	}
+	slog.Info("scan sense diagnostic", "sheet", s.physicalSheet, "senseKey", fmt.Sprintf("0x%02X", resp[SenseDataOffset+2]&0x0F), "asc", fmt.Sprintf("0x%02X", resp[SenseDataOffset+12]), "ascq", fmt.Sprintf("0x%02X", resp[SenseDataOffset+13]))
+	if senseErr := parseSenseError(resp); senseErr != nil {
+		return senseErr
+	}
+	return nil
+}
+
 // NextPage returns the next scanned page. Returns io.EOF when no more pages
 // are available. For duplex, front and back sides are returned as separate pages.
 //
@@ -325,6 +346,8 @@ func (s *ScanSession) NextPage() (Page, error) {
 	// Before first side of a new sheet (except the very first), wait for next sheet
 	if s.sideIdx == 0 && s.physicalSheet > 0 {
 		noPaper := false
+		statusKnown := false
+		coverOpen := false
 		// Check status
 		s.conn.SetDeadline(time.Now().Add(10 * time.Second))
 		if _, err := s.conn.Write(MarshalGetStatus(s.token)); err != nil {
@@ -340,6 +363,8 @@ func (s *ScanSession) NextPage() (Page, error) {
 			scanStatus := binary.BigEndian.Uint32(statusResp[StatusRespScanStatusOffset : StatusRespScanStatusOffset+4])
 			slog.Info("scan status", "status", fmt.Sprintf("0x%08X", scanStatus))
 			noPaper = !HasPaper(scanStatus)
+			statusKnown = true
+			coverOpen = scanStatus&ADFCoverOpenMask != 0
 		}
 
 		// Check for scanner error (multi-feed, etc.) at offset 44
@@ -351,11 +376,22 @@ func (s *ScanSession) NextPage() (Page, error) {
 					s.done = true
 					return Page{}, io.EOF
 				}
-				s.done = true
-				kind := ErrorCodeToKind(errorCode)
-				msg := fmt.Sprintf("scanner error 0x%04X", errorCode)
-				slog.Warn(msg, "errorCode", fmt.Sprintf("0x%04X", errorCode), "kind", kind)
-				return Page{}, &ScanError{Kind: kind, Msg: msg}
+				// Confirm detailed scanner state before considering the iX500
+				// stale 0x2000 status seen between successfully transferred sheets.
+				if senseErr := s.readSense(); senseErr != nil {
+					s.done = true
+					return Page{}, fmt.Errorf("scanner status 0x%04X: %w", errorCode, senseErr)
+				}
+				if errorCode == ErrorCodeNoPaper && statusKnown && !noPaper && !coverOpen {
+					slog.Warn("continuing after stale 0x2000 status", "sheet", s.physicalSheet, "reason", "paper present and sense reports no error")
+				} else {
+					slog.Warn("scanner status error without sense error", "errorCode", fmt.Sprintf("0x%04X", errorCode), "sheet", s.physicalSheet)
+					s.done = true
+					kind := ErrorCodeToKind(errorCode)
+					msg := fmt.Sprintf("scanner error 0x%04X", errorCode)
+					slog.Warn(msg, "errorCode", fmt.Sprintf("0x%04X", errorCode), "kind", kind)
+					return Page{}, &ScanError{Kind: kind, Msg: msg}
+				}
 			}
 		}
 
@@ -374,6 +410,10 @@ func (s *ScanSession) NextPage() (Page, error) {
 		if len(resp) >= WaitRespStatusOffset+4 {
 			waitStatus := binary.BigEndian.Uint32(resp[WaitRespStatusOffset : WaitRespStatusOffset+4])
 			if waitStatus != 0 {
+				if senseErr := s.readSense(); senseErr != nil {
+					s.done = true
+					return Page{}, fmt.Errorf("wait next sheet status %d: %w", waitStatus, senseErr)
+				}
 				slog.Info("scan complete", "waitStatus", waitStatus)
 				s.done = true
 				return Page{}, io.EOF

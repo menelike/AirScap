@@ -185,6 +185,15 @@ func RunSaveJob(sc *Scanner, cfg vens.ScanConfig, format string, savePath string
 		return 0, fmt.Errorf("scan returned no pages")
 	}
 
+	// Keep incomplete scans out of ingestion watchers that read savePath.
+	if scanErr != nil {
+		savePath = filepath.Join(savePath, "failed")
+		if err := os.MkdirAll(savePath, 0755); err != nil {
+			return len(pages), fmt.Errorf("scan failed (%v); create recovery directory: %w", scanErr, err)
+		}
+		slog.Warn("partial scan quarantined", "path", savePath, "pages", len(pages), "err", scanErr)
+	}
+
 	timestamp := time.Now().Format("20060102_150405")
 	dpi := vens.QualityDPI[cfg.Quality]
 	if dpi == 0 {
