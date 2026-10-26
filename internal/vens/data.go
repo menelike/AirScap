@@ -44,10 +44,11 @@ func (e *ScanError) Error() string { return e.Msg }
 
 // Page holds a single scanned page image.
 type Page struct {
-	Sheet     int            // Physical sheet index (0-based)
-	Side      int            // 0=front, 1=back
-	JPEG      []byte         // Raw JPEG data
-	PixelSize *PixelSizeInfo // Actual pixel dimensions (nil if not queried)
+	PDFRotation int            // Baseline orientation correction for PDF output, in degrees.
+	Sheet       int            // Physical sheet index (0-based)
+	Side        int            // 0=front, 1=back
+	JPEG        []byte         // Raw JPEG data
+	PixelSize   *PixelSizeInfo // Actual pixel dimensions (nil if not queried)
 }
 
 // DataChannel manages TCP data channel connections (port 53218).

@@ -620,6 +620,7 @@ func (d *pdfDocument) Next() (abstract.DocumentFile, error) {
 		return nil, fmt.Errorf("no pages scanned")
 	}
 
+	d.adapter.scanner.correctPDFOrientation(pages)
 	dpi := d.res.XResolution
 	if dpi <= 0 {
 		dpi = 300

@@ -186,6 +186,7 @@ func (s *Scanner) Scan(cfg vens.ScanConfig, onPage func(vens.Page)) ([]vens.Page
 	slog.Info("starting scan", "colorMode", cfg.ColorMode, "quality", cfg.Quality, "duplex", cfg.Duplex, "paperSize", cfg.PaperSize)
 	dataCh := vens.NewDataChannel(s.host, s.dataPort, s.token)
 	pages, err := dataCh.RunScan(cfg, onPage)
+	s.correctPDFOrientation(pages)
 	if err != nil {
 		slog.Warn("scan error", "err", err, "pages_so_far", len(pages))
 		return pages, err
@@ -373,4 +374,16 @@ func (s *Scanner) MakeAndModel() string {
 		return dn
 	}
 	return name
+}
+
+// correctPDFOrientation normalizes the iX500 scan-head orientation for documents
+// loaded face-down, top-first. Preserve encoded images to avoid JPEG recompression.
+func (s *Scanner) correctPDFOrientation(pages []vens.Page) {
+	fields := strings.Fields(s.MakeAndModel())
+	if len(fields) == 0 || !strings.EqualFold(fields[len(fields)-1], "iX500") {
+		return
+	}
+	for i := range pages {
+		pages[i].PDFRotation = 180
+	}
 }

@@ -77,7 +77,15 @@ func GeneratePDF(pages []vens.Page, dpi int, isBW bool) ([]byte, error) {
 		} else {
 			pdf.RegisterImageOptionsReader(name, fpdf.ImageOptions{ImageType: "JPEG"}, bytes.NewReader(p.JPEG))
 		}
+		if p.PDFRotation == 180 {
+			pdf.TransformBegin()
+			pdf.TransformRotate(180, widthMM/2, heightMM/2)
+		}
 		pdf.ImageOptions(name, 0, 0, widthMM, heightMM, false, fpdf.ImageOptions{}, 0, "")
+		if p.PDFRotation == 180 {
+			pdf.TransformEnd()
+		}
+
 	}
 
 	var out bytes.Buffer
@@ -143,9 +151,19 @@ func GenerateOCRPDF(ctx context.Context, pages []vens.Page, dpi int, isBW bool, 
 		} else {
 			pdf.RegisterImageOptionsReader(name, fpdf.ImageOptions{ImageType: "JPEG"}, bytes.NewReader(p.JPEG))
 		}
+		if p.PDFRotation == 180 {
+			pdf.TransformBegin()
+			pdf.TransformRotate(180, widthMM/2, heightMM/2)
+		}
 		pdf.ImageOptions(name, 0, 0, widthMM, heightMM, false, fpdf.ImageOptions{}, 0, "")
+		if p.PDFRotation == 180 {
+			pdf.TransformEnd()
+		}
 
 		// OCR: recognize text and overlay
+		if p.PDFRotation == 180 {
+			img = rotateImage180(img)
+		}
 		blocks, err := engine.Recognize(ctx, img)
 		if err != nil {
 			slog.Warn("OCR failed for page, skipping text layer", "page", i+1, "err", err)
@@ -332,6 +350,17 @@ func toBitonalPNG(img image.Image) *image.Paletted {
 			if r < 0x8000 {
 				dst.SetColorIndex(x, y, 1)
 			}
+		}
+	}
+	return dst
+}
+
+func rotateImage180(src image.Image) image.Image {
+	b := src.Bounds()
+	dst := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			dst.Set(x, y, src.At(b.Max.X-1-x, b.Max.Y-1-y))
 		}
 	}
 	return dst
